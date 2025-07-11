@@ -1,0 +1,347 @@
+from flask import Flask, request, jsonify, render_template_string
+import nltk
+from nltk.tokenize import word_tokenize
+from nltk.stem import WordNetLemmatizer
+from difflib import get_close_matches
+import random
+import time
+
+# Ensure NLTK data is downloaded
+try:
+    nltk.data.find('tokenizers/punkt')
+    nltk.data.find('corpora/wordnet')
+except LookupError:
+    nltk.download('punkt')
+    nltk.download('wordnet')
+
+app = Flask(_name_)
+lemmatizer = WordNetLemmatizer()
+
+# Enhanced FAQ Knowledge Base with more variations and follow-ups
+faq_db = {
+    "shipping": {
+        "patterns": ["shipping", "delivery", "arrive", "track", "when will", "how long"],
+        "responses": [
+            "Standard shipping takes 3-5 business days. Would you like tracking info?",
+            "Most orders arrive within 5 business days. Need help tracking your package?",
+            "Delivery typically takes 3-5 days after processing. Want me to check your order status?"
+        ],
+        "followups": [
+            "I can check your tracking status if you provide your order number.",
+            "Would you like to know about express shipping options?",
+            "Can I help you with anything else regarding your delivery?"
+        ]
+    },
+    "returns": {
+        "patterns": ["return", "refund", "exchange", "send back"],
+        "responses": [
+            "You can return items within 30 days of purchase. Need the return form?",
+            "Our return policy allows returns within 30 days with receipt. Should I email you instructions?",
+            "Returns are accepted within 30 days in original condition. Need help starting your return?"
+        ],
+        "followups": [
+            "Would you like me to send you the return shipping label?",
+            "Can I help you initiate the return process?",
+            "Need any other assistance with your return?"
+        ]
+    },
+    "payments": {
+        "patterns": ["payment", "pay", "card", "credit", "debit", "paypal"],
+        "responses": [
+            "We accept Visa, Mastercard, PayPal, and Apple Pay. Need help with a specific payment method?",
+            "Payment options include all major credit cards and PayPal. Having trouble with checkout?",
+            "You can pay with credit card, debit card, or PayPal. Need assistance completing your payment?"
+        ],
+        "followups": [
+            "Would you like help troubleshooting payment issues?",
+            "Can I explain our payment security measures?",
+            "Need any other payment-related information?"
+        ]
+    },
+    "account": {
+        "patterns": ["account", "login", "password", "sign in", "register"],
+        "responses": [
+            "You can reset your password using the 'Forgot Password' link. Need me to send reset instructions?",
+            "Account details can be updated in your profile settings. Want me to guide you through the process?",
+            "For login issues, try resetting your password. Need help accessing your account?"
+        ],
+        "followups": [
+            "Would you like step-by-step instructions for password reset?",
+            "Can I help you with any other account issues?",
+            "Need assistance with two-factor authentication?"
+        ]
+    }
+}
+
+# Conversation history to maintain context
+conversation_history = {}
+
+
+def preprocess_text(text):
+    try:
+        tokens = word_tokenize(text.lower())
+        return [lemmatizer.lemmatize(token) for token in tokens]
+    except Exception as e:
+        print(f"Error in tokenization: {e}")
+        return text.lower().split()
+
+
+def find_best_match(user_input, session_id):
+    processed_input = preprocess_text(user_input)
+    best_match = None
+    highest_score = 0
+
+    # Check if we're in a follow-up context
+    if session_id in conversation_history and conversation_history[session_id].get('awaiting_followup'):
+        last_category = conversation_history[session_id]['last_category']
+        return last_category
+
+    # Check all categories for matches
+    for category, data in faq_db.items():
+        for pattern in data["patterns"]:
+            pattern_words = preprocess_text(pattern)
+            score = sum(1 for word in pattern_words if word in processed_input)
+
+            # Bonus for close matches
+            if get_close_matches(' '.join(processed_input), [' '.join(pattern_words)], cutoff=0.7):
+                score += 2
+
+            if score > highest_score:
+                highest_score = score
+                best_match = category
+
+    return best_match if highest_score > 1 else None
+
+
+def generate_response(user_input, session_id):
+    try:
+        # Store conversation context
+        if session_id not in conversation_history:
+            conversation_history[session_id] = {
+                'last_category': None,
+                'awaiting_followup': False,
+                'history': []
+            }
+
+        # Check if this is a follow-up to previous question
+        if conversation_history[session_id]['awaiting_followup']:
+            last_category = conversation_history[session_id]['last_category']
+            followup = random.choice(faq_db[last_category]["followups"])
+            conversation_history[session_id]['awaiting_followup'] = False
+            return followup
+
+        # Try to find FAQ match
+        best_category = find_best_match(user_input, session_id)
+
+        if best_category:
+            response = random.choice(faq_db[best_category]["responses"])
+            conversation_history[session_id]['last_category'] = best_category
+            conversation_history[session_id]['awaiting_followup'] = True
+            conversation_history[session_id]['history'].append((user_input, response))
+            return response
+
+        # If no direct match found
+        topics = list(faq_db.keys())
+        topic_scores = {topic: sum(1 for word in preprocess_text(topic) if word in preprocess_text(user_input))
+                        for topic in topics}
+
+        likely_topic = max(topic_scores, key=topic_scores.get) if max(topic_scores.values()) > 0 else None
+
+        if likely_topic:
+            example_questions = {
+                "shipping": "delivery times or tracking info",
+                "returns": "return process or refund status",
+                "payments": "accepted payment methods",
+                "account": "password reset or login help"
+            }
+            general_response = f"I can help with {likely_topic}. For example: {example_questions[likely_topic]}. What would you like to know?"
+            conversation_history[session_id]['history'].append((user_input, general_response))
+            return general_response
+
+        # Final fallback
+        fallbacks = [
+            "I specialize in shipping, returns, payments, and account help. Which topic interests you?",
+            "Our support team handles order issues, returns, payments, and accounts. What do you need?",
+            "For quick help, try asking about: shipping status, return process, payment methods, or account settings."
+        ]
+        fallback_response = random.choice(fallbacks)
+        conversation_history[session_id]['history'].append((user_input, fallback_response))
+        return fallback_response
+
+    except Exception as e:
+        print(f"Error generating response: {e}")
+        return "Our support team is available 24/7 at support@company.com for immediate assistance."
+
+
+@app.route('/')
+def chatbot_interface():
+    return render_template_string('''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Enhanced Customer Support Chatbot</title>
+        <style>
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background-color: #f5f5f5; }
+            #chat-container { border: 1px solid #ddd; border-radius: 10px; height: 500px; display: flex; flex-direction: column; background-color: white; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+            #chat-box { flex: 1; padding: 20px; overflow-y: auto; }
+            .message { margin-bottom: 15px; padding: 12px 16px; border-radius: 18px; max-width: 75%; line-height: 1.4; position: relative; }
+            .user { background: #4285f4; color: white; align-self: flex-end; margin-left: 25%; border-bottom-right-radius: 5px; }
+            .bot { background: #f1f1f1; align-self: flex-start; margin-right: 25%; border-bottom-left-radius: 5px; }
+            .message-time { font-size: 0.7em; opacity: 0.7; margin-top: 5px; }
+            #input-area { display: flex; padding: 15px; border-top: 1px solid #eee; background-color: white; }
+            #user-input { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 24px; outline: none; font-size: 1em; }
+            #send-btn { margin-left: 10px; padding: 0 20px; background: #4285f4; color: white; border: none; border-radius: 24px; cursor: pointer; font-size: 1em; transition: background 0.3s; }
+            #send-btn:hover { background: #3367d6; }
+            .suggestions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; padding: 0 15px 15px; }
+            .suggestion-btn { padding: 8px 16px; background: #e8f0fe; color: #4285f4; border: none; border-radius: 16px; cursor: pointer; font-size: 0.9em; transition: all 0.2s; }
+            .suggestion-btn:hover { background: #d2e3fc; }
+            .typing-indicator { display: inline-block; padding-left: 5px; }
+            .typing-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: #888; margin-right: 3px; animation: typingAnimation 1.4s infinite both; }
+            .typing-dot:nth-child(1) { animation-delay: 0s; }
+            .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+            .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+            @keyframes typingAnimation {
+                0%, 60%, 100% { transform: translateY(0); }
+                30% { transform: translateY(-5px); }
+            }
+        </style>
+    </head>
+    <body>
+        <h1 style="text-align: center; color: #4285f4; margin-bottom: 20px;">Customer Support Assistant</h1>
+        <div id="chat-container">
+            <div id="chat-box"></div>
+            <div id="input-area">
+                <input type="text" id="user-input" placeholder="Type your question here..." autocomplete="off">
+                <button id="send-btn">Send</button>
+            </div>
+            <div class="suggestions">
+                <button class="suggestion-btn" onclick="askQuestion('How long does shipping take?')">Shipping Time</button>
+                <button class="suggestion-btn" onclick="askQuestion('How do I return an item?')">Returns</button>
+                <button class="suggestion-btn" onclick="askQuestion('What payment methods do you accept?')">Payments</button>
+                <button class="suggestion-btn" onclick="askQuestion('I forgot my password')">Account Help</button>
+            </div>
+        </div>
+
+        <script>
+            const chatBox = document.getElementById('chat-box');
+            const userInput = document.getElementById('user-input');
+            const sendBtn = document.getElementById('send-btn');
+            let sessionId = 'session-' + Math.random().toString(36).substr(2, 9);
+
+            function formatTime(date) {
+                return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            }
+
+            function addMessage(text, isUser) {
+                const msgDiv = document.createElement('div');
+                msgDiv.classList.add('message');
+                msgDiv.classList.add(isUser ? 'user' : 'bot');
+
+                const timeDiv = document.createElement('div');
+                timeDiv.classList.add('message-time');
+                timeDiv.textContent = formatTime(new Date());
+
+                msgDiv.textContent = text;
+                msgDiv.appendChild(timeDiv);
+                chatBox.appendChild(msgDiv);
+                chatBox.scrollTop = chatBox.scrollHeight;
+            }
+
+            function showTypingIndicator() {
+                const typingDiv = document.createElement('div');
+                typingDiv.classList.add('message');
+                typingDiv.classList.add('bot');
+                typingDiv.id = 'typing-indicator';
+
+                const dots = document.createElement('span');
+                dots.classList.add('typing-indicator');
+                dots.innerHTML = '<span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>';
+
+                typingDiv.textContent = 'Customer support is typing ';
+                typingDiv.appendChild(dots);
+                chatBox.appendChild(typingDiv);
+                chatBox.scrollTop = chatBox.scrollHeight;
+            }
+
+            function hideTypingIndicator() {
+                const typingDiv = document.getElementById('typing-indicator');
+                if (typingDiv) {
+                    typingDiv.remove();
+                }
+            }
+
+            async function askQuestion(question) {
+                userInput.value = question;
+                await sendMessage();
+            }
+
+            async function sendMessage() {
+                const message = userInput.value.trim();
+                if (!message) return;
+
+                addMessage(message, true);
+                userInput.value = '';
+
+                showTypingIndicator();
+
+                try {
+                    const response = await fetch('/chat', {
+                        method: 'POST',
+                        headers: { 
+                            'Content-Type': 'application/json',
+                            'X-Session-ID': sessionId
+                        },
+                        body: JSON.stringify({ message })
+                    });
+
+                    hideTypingIndicator();
+
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+
+                    const data = await response.json();
+                    addMessage(data.response, false);
+                } catch (error) {
+                    hideTypingIndicator();
+                    addMessage("I'm having trouble connecting. Please try again later.", false);
+                    console.error('Error:', error);
+                }
+            }
+
+            sendBtn.addEventListener('click', sendMessage);
+            userInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') sendMessage();
+            });
+
+            // Initial greeting with slight delay for natural feel
+            setTimeout(() => {
+                addMessage("Hello! I'm your customer support assistant. How can I help you today?", false);
+            }, 500);
+        </script>
+    </body>
+    </html>
+    ''')
+
+
+@app.route('/chat', methods=['POST'])
+def chat():
+    try:
+        session_id = request.headers.get('X-Session-ID', str(time.time()))
+        data = request.get_json()
+        user_message = data.get('message', '').strip()
+
+        if not user_message:
+            return jsonify({'response': "Please type your question so I can help you."})
+
+        response = generate_response(user_message, session_id)
+        return jsonify({'response': response})
+
+    except Exception as e:
+        print(f"Error in chat endpoint: {e}")
+        return jsonify(
+            {'response': "Our support team is available 24/7 at support@company.com for immediate assistance."})
+
+
+if _name_ == '_main_':
+    app.run(debug=True)

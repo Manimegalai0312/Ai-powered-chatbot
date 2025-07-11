@@ -7,9 +7,12 @@ DESIGNATION: PYTHON DEVELOPER INTERN
 DURATION: 1 MONTH
 
 OUTPUT:
+
 <img width="1341" height="630" alt="Screenshot 2025-07-11 191702" src="https://github.com/user-attachments/assets/0399c8a4-90c8-4419-90ac-c8755a015710" />
 
+
 <img width="1354" height="638" alt="Screenshot 2025-07-11 191725" src="https://github.com/user-attachments/assets/dec5d061-7981-4eca-b29f-4c901161d08b" />
+
 
 <img width="1357" height="625" alt="Screenshot 2025-07-11 191741" src="https://github.com/user-attachments/assets/855e9963-7db6-4a4e-9b89-ea38bd653ae3" />
 

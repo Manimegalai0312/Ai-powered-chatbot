@@ -14,7 +14,7 @@ except LookupError:
     nltk.download('punkt')
     nltk.download('wordnet')
 
-app = Flask(_name_)
+app = Flask(__name__)
 lemmatizer = WordNetLemmatizer()
 
 # Enhanced FAQ Knowledge Base with more variations and follow-ups
@@ -343,5 +343,5 @@ def chat():
             {'response': "Our support team is available 24/7 at support@company.com for immediate assistance."})
 
 
-if _name_ == '_main_':
+if __name__ == '__main__':
     app.run(debug=True)

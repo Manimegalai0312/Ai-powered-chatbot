@@ -1,11 +1,3 @@
-COMPANY: CODEC TECHNOLOGIES
-
-NAME: MANIMEGALAI S
-
-DESIGNATION: PYTHON DEVELOPER INTERN
-
-DURATION: 1 MONTH
-
 OUTPUT:
 
 <img width="1341" height="630" alt="Screenshot 2025-07-11 191702" src="https://github.com/user-attachments/assets/0399c8a4-90c8-4419-90ac-c8755a015710" />
